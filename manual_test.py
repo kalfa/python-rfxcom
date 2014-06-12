@@ -1,11 +1,14 @@
+import asyncio
+import selectors
+
 from argparse import ArgumentParser
-from asyncio import get_event_loop
 from functools import partial
 from logging.config import dictConfig
 from sys import stdout
 
 from rfxcom import protocol
 from rfxcom.transport import AsyncioTransport
+from tests.stub import StubSerial, StubbedDefaultSelector
 
 LOGGING = {
     'version': 1,
@@ -57,6 +60,7 @@ def default_callback(packet):
 
 
 def write(rfxcom):
+    print("WRITE RFXCOM")
     return
 
 
@@ -64,11 +68,21 @@ def main():
 
     dictConfig(LOGGING)
 
-    loop = get_event_loop()
 
     parser = ArgumentParser()
     parser.add_argument('device')
     args = parser.parse_args()
+
+    if args.device == 'stub':
+        args.device = StubSerial()
+        args.device.push_readable_data(b'\x123456')
+        args.device.push_readable_data(b'\x7890')
+        selectors.DefaultSelector = StubbedDefaultSelector
+
+    loop = asyncio.get_event_loop()
+
+    if isinstance(args.device, StubSerial):
+        loop._selector.registerStub(args.device)
 
     try:
         rfxcom = AsyncioTransport(args.device, loop, callbacks={
@@ -80,6 +94,7 @@ def main():
         loop.call_later(2, partial(write, rfxcom))
         loop.run_forever()
     finally:
+        print("Pending tasks at exit: %s" % asyncio.Task.all_tasks(loop))
         loop.close()
 
 
